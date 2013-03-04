@@ -1,0 +1,11 @@
+0d5d7b714f0bd110b702afecc213f37a *CHANGELOG
+4a99472cb7c4870175c6da8114602313 *DESCRIPTION
+4105aa9bf5a2c41e8f59ee751a0f59e5 *NAMESPACE
+8a53dc9cc2a49eae1a6a82e6656b33a3 *R/nets.R
+193b7c26984eb4b84c936ae5596f7196 *demo/00Index
+d9a0e23a5d46838b71335ca17cd07e0b *demo/granger_network.R
+7734242c194c4ca39239ab1358b440e5 *demo/lrparcor_network.R
+1614725fc0dfe4deebcc67ace4855be3 *demo/parcor_network.R
+b85367cdabae2e3b061ade60fc6a50d5 *man/nets-package.Rd
+bdadf74748c08dab18dd03ba15eaa610 *man/nets.Rd
+a8cf1a87739c76395e858d77e15c6068 *src/nets.c
