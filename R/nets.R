@@ -1,244 +1,232 @@
 
 .packageName <- "nets"
 
-nets <- function( y , type='lrpc' , algorithm='default' , p=1 , lambda=stop("shrinkage parameter 'lambda' has not been set") , verbose=FALSE ){ 
+nets <- function( y , GN=TRUE , CN=TRUE , p=1 , lambda=stop("shrinkage parameter 'lambda' has not been set") , alpha.init=NULL , rho.init=NULL , algorithm='activeshooting' , weights='adaptive' , iter.in=100 , iter.out=2 , verbose=FALSE ){
+  
+  # input check
+  if( !is.data.frame(y) & !is.matrix(y) ){
+    stop("The 'y' parameter has to be a TxN matrix or a data.frame of data")
+  }
+  if( iter.in < 1 | iter.out < 1 ){
+    stop("The 'iter' parameters have to be positive")
+  }
+  if( p<0 ){
+    stop("The 'p' parameter has to be nonnegative")
+  }
+  if( !is.logical(verbose) ){
+    stop("The 'verbose' parameter has to be TRUE or FALSE")
+  }
+  if( GN==FALSE & CN==FALSE ){
+    stop("At least A or G have to be true")  
+  }
+  if( !(algorithm %in% c('shooting','activeshooting')) ){
+    stop("The algorihm has to be set to: shooting' or 'activeshooting'")  
+  }
+  if( !(weights %in% c('adaptive','none')) ){
+    stop("The lasso weights have to be set to: 'adaptive', or 'none'")  
+  }
+  
+  # define variables
+  T <- nrow(y)
+  N <- ncol(y)
+  P <- p
+  if( !is.null(dimnames(y)[[2]]) ){
+    labels <- dimnames(y)[[2]]
+  } else {
+    labels <- paste('V',1:N,sep='')
+  }
+  if( length(lambda)==1 ){
+    lambda <- rep(lambda,2)
+  }
 
-	# control for errors
-	
-	# redirect to the appropriate network estimation routine
-	network <- switch( type ,
-		lrpc=.nets.lrpc( y , p , lambda , verbose ),
-		pc=.nets.pc( y , lambda , verbose ),
-		g=.nets.g( y , p , lambda , verbose ) )
+  if( !is.null(alpha.init) ) alpha <- alpha.init
+  else alpha <- rep(0,N*N*P)
 
-	# prepare igraph stuff
-	if( type=='lrpc' | type=='pc' ){
-		ig <- graph.adjacency( network$Adj , mode='undirected')
-	}
-	else {
-		ig <- graph.adjacency( network$Adj , mode='directed')
-	}
-	V(ig)$label <- V(ig)$name	
-	network$ig <- ig
+  if( !is.null(rho.init) ) rho <- rho.init
+  else rho <- rep(0,N*(N-1)/2)
+  
+  alpha.weights <- rep(1,N*N*P)
+  rho.weights   <- rep(1,N*(N-1)/2)
+  c.hat         <- 1/diag(cov(y))
+  
+  # ADAPTIVE WEIGHTS COMPUTATION
+  if( weights=='adaptive' ){
+    
+    if( (T < N*P) ){ stop('Cannot compute adaptive weights by LS when T<N*P') }
 
-	# network characteristics 
-	network$type <- type
-	network$T    <- nrow(y)
-	network$N    <- ncol(y)
+    if( GN == TRUE ){
+      
+        x.aux <- matrix( 0 , T , N*P )
+        for( p in 1:P ){
+          x.aux[(p+1):T, ((p-1)*N+1):(p*N) ] <- y[1:(T-p),]
+        }
+        
+        reg <- lm( y ~ 0+x.aux )
+        A     <- coef(reg)
+        eps   <- reg$resid
+        
+        alpha.pre <- c()
+        for( p in 1:P ){
+          alpha.pre <- c( alpha.pre , ( A[((p-1)*N+1):(p*N),] ) [1:(N*N)] )
+        }
 
-	class(network) <- 'nets'
+        alpha.weights <- 1/(abs(alpha.pre)+1e-4)
 
-	network
-}
-
-plot.nets <- function( x , ... ){ 
-  	plot( x$ig , ... )
+    } 
+    else{
+      eps      <- y
+    }
+    
+    if( CN == TRUE ){
+      C.hat       <- solve( cov(eps) )
+      PC          <- -diag( c.hat**(-0.5) ) %*% C.hat %*% diag( c.hat**(-0.5) )	        
+      rho.pre     <- PC[ upper.tri(PC) ]
+      rho.weights <- 1/(abs(rho.pre)+1e-4)      
+    }  
+    else{
+      iter.out <- 1
+    }
+  }
+  
+  if( algorithm == 'activeshooting' ){ algorithm <- 'nets_activeshooting' }
+  else{ algorithm <- 'nets_shooting' }
+  
+  # call nets
+  for( iter in 1:iter.out ){
+    cat('iter',iter,'of',iter.out,'\n')
+    run <- .C(algorithm,
+             alpha        =as.double(alpha),
+             rho          =as.double(rho), 
+             alpha.weights=as.double(alpha.weights),
+             rho.weights  =as.double(rho.weights),
+             lambda       =as.double(lambda),
+             y            =as.double(y),
+             T            =as.integer(T),
+             N            =as.integer(N),
+             P            =as.integer(P),
+             c.hat        =as.double(c.hat),
+             GN           =as.integer(GN),
+             CN           =as.integer(CN),
+             v            =as.integer(verbose),
+             m            =as.integer(iter.in),
+	           rss          =as.double(0),
+	           npar         =as.double(0))
+  }
+  
+  # package results
+  obj <- list()
+  class(obj)    <- 'nets'
+  obj$y         <- y
+  obj$T         <- T
+  obj$N         <- N
+  obj$P         <- P
+  obj$rss       <- run$rss/(N*T)
+  obj$npar      <- run$npar
+  obj$lambda    <- lambda
+  obj$GN        <- GN
+  obj$CN        <- CN
+  
+  if( GN == TRUE ){
+    A.hat <- array(0,dim=c(N,N,P))
+    for( p in 1:P ){
+      for( i in 1:N ){
+        A.hat[i,,p] <- run$alpha[ ((p-1)*N*N+(i-1)*N+1):((p-1)*N*N+i*N) ]
+      }
+    }
+    dimnames(A.hat)[[1]] <- labels
+    dimnames(A.hat)[[2]] <- labels    
+    obj$A.hat     <- A.hat 
+    obj$alpha.hat <- run$alpha 
+  }
+  else{
+    obj$alpha.hat <- alpha
+  }
+  if( CN == TRUE ){
+    C.hat <- matrix(0,N,N)
+    for( i in 1:N ){
+      C.hat[i,i] <- run$c[i]
+      for( j in setdiff(1:N,i) ){
+        c_ij       <- -run$rho[ (max(i,j)-1)*(max(i,j)-2)/2 + min(i,j) ] * sqrt( run$c.hat[i] * run$c.hat[j] )
+        C.hat[i,j] <- c_ij
+        C.hat[j,i] <- c_ij
+      }
+    }
+    dimnames(C.hat)[[1]] <- labels
+    dimnames(C.hat)[[2]] <- labels
+    obj$C.hat     <- C.hat 
+    obj$rho.hat   <- run$rho
+    obj$c.hat     <- run$c.hat
+  }
+  else{
+    obj$rho.hat   <- rho
+    obj$c.hat     <- c.hat
+  }
+  
+  # networks
+  I.n <- diag(N)
+  
+  if( CN == TRUE ){
+    PCN  <- C.hat > 0
+    PCN[row(I.n) == col(I.n) ] <- 0
+    obj$c.adj <- 1*(PCN > 0)
+  }
+  if( GN == TRUE ){
+    DGN <- matrix(0,N,N)
+    for( p in 1:P ){
+      DGN <- DGN | A.hat[,,p]>0
+    }
+    DGN[row(I.n) == col(I.n) ] <- 0
+    obj$g.adj    <- 1*DGN
+  }
+  if( CN == TRUE && GN==TRUE ){
+    KL         <- t(I.n-DGN ) %*% C.hat %*% ( I.n-DGN )
+    LRPCN      <- -diag( diag(KL)**(-0.5) ) %*% KL %*% diag( diag(KL)**(-0.5) )
+    LRPCN[row(I.n) == col(I.n) ] <- 0
+    obj$lr.adj <- 1*(LRPCN > 0)
+  }
+  
+  return(obj)
 }
 
 print.nets <- function( x , ... ) {
-
-	labels <- list( lrpc='Long Run Partial Correlation' , pc='Partial Correlation' , g='Granger' )
-
-	if( x$type=='g' ){ 
-		nedge <- sum( x$Adj ); 
-		medge <- x$N^2 
-	}  
-	else { 
-		nedge <- sum( x$Adj[ lower.tri(x$Adj) ]!=0 ); 
-		medge <- ((x$N-1)*x$N)/2.0
-	}
-
-	cat( ' ' , labels[[ x$type ]] , ' Network\n' , sep='' )
-	cat( ' Number of Detected Edges: ' , nedge , ' (' , round( (nedge/medge)*100 , 1 ) , '%)\n' , sep='' )
+   	cat( ' Time Series Panel Dimension: T=',x$T,' N=',x$N,'\n',sep='')
+   	cat( ' VAR Lags P=',x$P,'\n',sep='')
+    cat( ' RSS',x$rss,'Num Par',x$npar)
+    cat( ' Lasso Penalty: ', x$lambda )
 }
 
-# Long Run Partial Correlation Network
-.nets.lrpc <- function(y,p,lambda,verbose){
+predict.nets <- function( object , newdata , ... ){
 
-	y <- as.matrix(y)
-	T <- nrow(y)
-	N <- ncol(y)
-	labels <- dimnames(y)[[2]]
-
-	# G  
-	network.G <- .nets.g(y,p=p,lambda=lambda[1],verbose=verbose)
-
-	# C
-	network.C <- .nets.pc(network.G$eps,lambda=lambda[2],verbose=verbose)
-
-	# put results together
-	C <- network.C$C
-	G <- matrix(0,N,N)
-	G[ col(G)==row(G) ] <- 1
-	G <- G - network.G$G
-
-	KLR <- t(G) %*% C %*% G
-	Adj <- (KLR != 0)*1
-	Adj[ row(Adj)==col(Adj) ] <- 0
-
-	LRPC  <- diag(1/sqrt(diag(KLR))) %*% KLR %*% diag(1/sqrt(diag(KLR)))
-	LRPC[ row(LRPC)!=col(LRPC) ] <- -LRPC[ row(LRPC)!=col(LRPC) ] 
-
-	# packaging results
-	dimnames(KLR) <- list(labels,labels)
-	dimnames(Adj) <- list(labels,labels)
-	dimnames(G)   <- list(labels,labels)
-	dimnames(KLR) <- list(labels,labels)
-
-	network      <- list()
-	network$C    <- C
-	network$G    <- G
-	network$KLR  <- KLR
-	network$Adj  <- Adj
-	network$LRPC <- LRPC 
-
-	network
+  # input check
+  if( !is.data.frame(newdata) & !is.matrix(newdata) ){
+    stop("The 'newdata' parameter has to be a TxN matrix or a data.frame of new observation")
+  }
+  
+  x     <- object
+  
+  #
+  T     <- nrow(newdata)
+  N     <- x$N
+  y.hat <- matrix(0,T,N)
+  y     <- rbind(x$y[(x$T-x$P+1):x$T,],newdata)
+  
+  # call nets
+  run <- .C( sprintf("nets_predict",algorithm),
+             y.hat        =as.double(y.hat),
+             y            =as.double(y),
+             T            =as.integer(T),
+             N            =as.integer(x$N),
+             P            =as.integer(x$P),
+             alpha        =as.double(x$alpha.hat),
+             rho          =as.double(x$rho.hat),              
+             c            =as.double(x$c.hat),
+             GN           =as.integer(x$GN),
+             CN           =as.integer(x$CN),
+             rss          =as.double(0))
+  
+  y.hat <- matrix(run$y.hat,T,N)
+  rss   <- run$rss/(T*N)
+  
+  # output
+  list( y.hat=y.hat , rss=rss )
 }
-
-# Partial Correlation Network
-.nets.pc <- function(y,lambda,verbose){
-
-	y <- as.matrix(y)
-	T <- nrow(y)
-	N <- ncol(y)
-	labels <- dimnames(y)[[2]]
-	if( is.null(labels) ) labels <- paste('V',1:N,sep='') 
-
-	results <- .nets.space(y,lambda,verbose)	
-	bic <- 0
-
-	C   <- results$K 
-	Adj <-(C!=0)*1
-	Adj[ row(Adj)==col(Adj) ] <- 0
-	PC  <- diag(1/sqrt(diag(results$K))) %*% results$K %*% diag(1/sqrt(diag(results$K)))
-	PC[ row(PC)!=col(PC) ] <- -PC[ row(PC)!=col(PC) ] 
-
-	dimnames(C)   <- list(labels,labels)
-	dimnames(Adj) <- list(labels,labels)
-	dimnames(PC)  <- list(labels,labels)
-
-	network     <- list()
-	network$C   <- C
-	network$bic <- bic
-	network$Adj <- Adj
-	network$PC  <- PC 
-
-	network
-}
-
-# Granger Network
-.nets.g <- function(y,p=1,lambda=0,v=NULL,w='adaptive',verbose=FALSE,procedure='shooting'){
-
-	y <- as.matrix(y)
-	T <- nrow(y)
-	N <- ncol(y)
-	labels <- dimnames(y)[[2]]
-	if( is.null(labels) ) labels <- paste('V',1:N,sep='')
-	
-	bic <- 0
-	A   <- array( 0 , dim=c(p,N,N) )
-	G   <- matrix( 0 , N , N )
-	eps <- matrix( 0 , T-p , N )
-
-	for( i in 1:N )	{
-		Y <- matrix( 0 , T-p , 1 ) 
-		X <- matrix( 0 , T-p , p*N )
-		
-		Y[] <- y[ (p+1):T , i]
-		for( l in 1:p ){
-			X[, ( (p-1)*N + p ):( p*N ) ] <- y[ (p+1-l):(T-l) , ]
-		}	
-	
-		results <- .nets.alasso( Y , X , w=w, lambda=lambda , verbose=verbose , procedure=procedure )
-
-		for( l in 1:p ){
-			A[l,i,] <- results$theta[ ( (p-1)*N + p ):( p*N ) ]
-		}
-		
-		eps[,i] <- results$eps
-	}
-	for( i in 1:p ) {
-		G <- G + A[l,,]
-	}
-
-	Adj <-(G!=0)*1
-
-	dimnames(G)   <- list(labels,labels)
-	dimnames(Adj) <- list(labels,labels)
-
-	network     <- list()
-	network$A   <- A
-	network$G   <- G
-	network$bic <- bic
-	network$Adj <- Adj
-	network$eps <- eps
-
-	network
-}
-
-.nets.pc.search <- function(y,lambda,verbose){}
-
-.nest.lrpc.search <- function(y){}
-
-.nest.g.search <- function(y){}
-
-# Adaptive Lasso
-.nets.alasso <- function(y,X,lambda,w='adaptive',verbose=FALSE,procedure='shooting'){
-	
-	M <- nrow(y)
-	N <- ncol(X)
-
-	toll <- 1e-6
-	maxiter <- 20
-
-	# check inputs
-	if( any( !is.finite(y) ) ){ stop('The response vector contains non finite values.') }
-	if( any( !is.finite(X) ) ){ stop('The data matrix contains non finite values.') }
-	if( lambda < 0 ){ stop('The ALASSO penalty is negative') }
-
-	# adaptive lasso weights
-	if( w=='adaptive' ) {
-		if( ncol(X) < nrow(y) ){
-			beta.pre <- coef( lm( y ~ 0+X ) )
-			w <- 1/abs(beta.pre)
-		}
-		else {
-			# TODO: ridge
-			w <- rep(1,N)
-		}
-	}
-	else {
-		w <- rep(1,N);
-	}
-
-	theta.init <- rep(0,N)
-	init <- 0
-
-	# call shooting algorithm
-        results <- .C(procedure, theta=as.double(rep(0,N)) , as.double(y) , as.double(X) , as.double(lambda) , as.double(w) , as.double(theta.init) , as.integer(M) , as.integer(N) , as.integer(verbose) , as.integer(init) , PACKAGE="nets" )
-
-	# packaging results
-	results <- list( theta=results$theta , eps=(y-X%*%results$theta) )
-}
-
-# SPACE Algorithm
-.nets.space <- function(y,lambda,verbose=FALSE)
-{
-	M <- nrow(y)
-	N <- ncol(y)
-	
-	results <- .C('space', theta=as.double(rep(0,N*(N-1)/2.0)) , ivar=as.double(rep(0,N)) , as.double(y), as.double(lambda), as.integer(M) , as.integer(N) , as.integer(verbose) , PACKAGE="nets" )
-
-	# packaging results
-	K <- matrix( 0 , N , N )
-	diag(K) <- results$ivar
-	for( i in 2:N ){
-		for( j in 1:(i-1) ){
-			K[i,j] <- -results$theta[ (i-1)*(i-2)/2+j  ]*results$ivar[i]
-			K[j,i] <- K[i,j]
-		}
-	}
-
-	list( K=K , results=results )
-}
-
