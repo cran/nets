@@ -1,12 +1,12 @@
 fe3496e7627aa457a539aab19061fd3e *CHANGELOG
-5e2a7b84423c7fc342414b2c98341f31 *DESCRIPTION
+42b99e31ab645b37c0d7a1a8ed3d4986 *DESCRIPTION
 4dfd9089f3b6680c352181eb25e0852e *NAMESPACE
-1c09ee58fdf0301e42d82d7ef388efc2 *R/nets.R
+48fcbb3350cd86904308855c79c24dc0 *R/nets.R
 ae261c7eeb52f55fe5c0ce49a85af233 *README
 6e9b076ef18f338f3771e6d8ce4a903a *demo/00Index
-fc76e7aac774590c3d517dcfa09c802d *demo/granger.R
-2d543c932d89de583ef3f789cdad8446 *demo/nets.R
+eb9dc0a050496f967887dbeda2b0367a *demo/granger.R
+f8523d8a0e80a3f910c75e282682f1e7 *demo/nets.R
 f2bfe76583c4e04ab0d434aa63918bac *demo/partial_correlation.R
 e8347e6cef729338e8acb6369fdc8811 *man/nets-package.Rd
 2c000006c53d6dde09e74a17cf0e4fde *man/nets.Rd
-7f4a6cc4253ba29d57e934131f3efcb6 *src/nets.c
+f7b58c50462d801e4133742e5925e1cb *src/nets.c
