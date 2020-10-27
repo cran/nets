@@ -1,8 +1,8 @@
 Package: nets
 Type: Package
 Title: Network Estimation for Time Series
-Version: 0.9
-Date: 2017-10-23
+Version: 0.9.1
+Date: 2020-10-27
 Author: Christian Brownlees
 Maintainer: Christian Brownlees <christian.brownlees@upf.edu>
 Imports: stats, igraph
@@ -12,5 +12,5 @@ LazyLoad: yes
 URL: https://github.com/ctbrownlees/R-Package-nets
 Repository: CRAN
 NeedsCompilation: yes
-Packaged: 2017-10-28 16:58:54 UTC; ctb
-Date/Publication: 2017-10-28 17:04:37 UTC
+Packaged: 2020-10-27 17:31:49 UTC; ctb
+Date/Publication: 2020-10-27 18:30:02 UTC
